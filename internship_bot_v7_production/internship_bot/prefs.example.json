@@ -1,0 +1,17 @@
+{
+  "target_countries": ["usa", "germany", "canada", "netherlands", "sweden", "other"],
+  "target_domains": ["ML research", "NLP", "deep learning", "computer vision", "bioinformatics"],
+  "min_deadline_days": 7,
+  "work_auth": {
+    "usa": false,
+    "germany": false,
+    "canada": false,
+    "netherlands": false,
+    "sweden": false,
+    "other": false
+  },
+  "country_weights": {},
+  "domain_weights": {},
+  "max_concurrent_apps": 3,
+  "dry_run": true
+}

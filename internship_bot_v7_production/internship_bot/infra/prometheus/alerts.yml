@@ -1,0 +1,179 @@
+groups:
+
+  # ── Business alerts ──────────────────────────────────────────────────────────
+  - name: business
+    rules:
+
+      - alert: InterviewInviteReceived
+        expr: increase(bot_responses_received_total{type="interview"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          channel: telegram
+        annotations:
+          summary: "🎉 Interview invite received!"
+          description: "An interview invite was detected in the inbox. Check your email."
+
+      - alert: OfferReceived
+        expr: increase(bot_responses_received_total{type="offer"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          channel: telegram
+        annotations:
+          summary: "🏆 Offer received!"
+          description: "A job offer was detected. Congratulations!"
+
+      - alert: HumanQueueBacklog
+        expr: bot_human_queue_size > 5
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Human review queue is backing up"
+          description: "{{ $value }} applications pending review for >30 minutes."
+
+      - alert: LowResponseRate
+        expr: avg(bot_response_rate) < 0.05
+        for: 24h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Response rate below 5% for 24 hours"
+          description: "Current rate: {{ $value | humanizePercentage }}. Consider adjusting targeting."
+
+      - alert: ZeroSubmissionsIn6h
+        expr: increase(bot_applications_submitted_total[6h]) == 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No applications submitted in last 6 hours"
+          description: "Pipeline may be stalled. Check Celery workers."
+
+  # ── Verification quality alerts ───────────────────────────────────────────────
+  - name: verification
+    rules:
+
+      - alert: HighHallucinationRate
+        expr: rate(bot_hallucinations_detected_total[1h]) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High hallucination rate in generated resumes"
+          description: "Quality reviewer is catching {{ $value }} hallucinations/min. Check resume generator prompt."
+
+      - alert: ATSScoreDegraded
+        expr: histogram_quantile(0.5, rate(bot_ats_score_bucket[1h])) < 60
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Median ATS score dropped below 60"
+          description: "p50 ATS score: {{ $value }}. JD keyword extraction may be degraded."
+
+      - alert: HighVerificationRetryRate
+        expr: histogram_quantile(0.75, rate(bot_verification_retries_bucket[1h])) > 2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Verification requiring 2+ retries for 75% of applications"
+          description: "Resume generator may need prompt adjustment."
+
+  # ── Portal + scraper alerts ───────────────────────────────────────────────────
+  - name: portal
+    rules:
+
+      - alert: HighCaptchaRate
+        expr: rate(bot_captcha_encounters_total[30m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CAPTCHAs detected on portal {{ $labels.portal }}"
+          description: "{{ $value }} CAPTCHA/min. Consider rotating proxies or adding delays."
+
+      - alert: PortalSubmissionFailureSpike
+        expr: rate(bot_submission_failure_total[15m]) > rate(bot_submission_success_total[15m])
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Submission failures exceeding successes on {{ $labels.portal }}"
+          description: "Portal may have changed layout. Check STRUCTURAL errors."
+
+      - alert: AllProxiesBanned
+        expr: bot_proxy_pool_available == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "All proxies are banned"
+          description: "Scraping is operating without proxy rotation. Risk of IP ban."
+
+      - alert: ScraperYieldDrop
+        expr: rate(bot_listings_discovered_total[2h]) < 0.1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scraper yield very low (< 0.1 listings/min)"
+          description: "Platforms may be blocking or selectors may be stale."
+
+  # ── System health alerts ──────────────────────────────────────────────────────
+  - name: system
+    rules:
+
+      - alert: APIDown
+        expr: up{job="internship_bot_api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API is down"
+          description: "FastAPI service is not responding to Prometheus scrapes."
+
+      - alert: HighAPILatency
+        expr: histogram_quantile(0.95, rate(bot_http_request_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 API latency > 5s"
+          description: "p95: {{ $value }}s. DB or Redis may be slow."
+
+      - alert: HighLLMLatency
+        expr: histogram_quantile(0.90, rate(bot_llm_call_duration_seconds_bucket[10m])) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p90 LLM call latency > 30s on agent {{ $labels.agent }}"
+          description: "Anthropic API may be degraded."
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down — Celery workers will stall"
+
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down — application records not being persisted"
+
+      - alert: HighErrorRate
+        expr: rate(bot_pipeline_errors_total{severity="critical"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CRITICAL pipeline error from agent {{ $labels.agent }}"
+          description: "Immediate attention required."

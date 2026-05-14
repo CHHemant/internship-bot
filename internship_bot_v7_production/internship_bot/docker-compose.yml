@@ -1,0 +1,175 @@
+version: "3.9"
+
+x-bot-base: &bot-base
+  build: .
+  env_file: .env
+  volumes:
+    - ./:/app
+    - screenshots:/tmp/internship_bot_screenshots
+    - vault:/app/.vault
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  bot:
+    <<: *bot-base
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker-discovery:
+    <<: *bot-base
+    command: ["celery", "-A", "infra.celery_app", "worker", "-Q", "discovery", "-c", "2", "--loglevel=info", "-n", "discovery@%h"]
+
+  worker-generation:
+    <<: *bot-base
+    command: ["celery", "-A", "infra.celery_app", "worker", "-Q", "generation", "-c", "4", "--loglevel=info", "-n", "generation@%h"]
+
+  worker-apply:
+    <<: *bot-base
+    command: ["celery", "-A", "infra.celery_app", "worker", "-Q", "apply", "-c", "2", "--loglevel=info", "-n", "apply@%h"]
+
+  celery-beat:
+    <<: *bot-base
+    command: ["celery", "-A", "infra.celery_app", "beat", "--loglevel=info", "--schedule", "/tmp/celerybeat-schedule"]
+
+  error-handler:
+    <<: *bot-base
+    command: ["python", "-m", "agents.error_handler.handler"]
+
+  flower:
+    <<: *bot-base
+    command: ["celery", "-A", "infra.celery_app", "flower", "--port=5555", "--url_prefix=flower", "--basic_auth=${FLOWER_USER:-admin}:${FLOWER_PASS:-changeme}"]
+    ports: ["5555:5555"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports: ["80:80"]
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      bot:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-user}
+      POSTGRES_PASSWORD: ${DB_PASS:-pass}
+      POSTGRES_DB: internship_bot
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-user}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save 60 1 --loglevel warning --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports: ["6379:6379"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    ports: ["9090:9090"]
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheusdata:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    restart: unless-stopped
+    depends_on:
+      bot:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASS:-changeme}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/pipeline.json
+      GF_SMTP_ENABLED: "true"
+      GF_SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}:${SMTP_PORT:-587}
+      GF_SMTP_USER: ${SMTP_USER:-}
+      GF_SMTP_PASSWORD: ${SMTP_PASS:-}
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on: [prometheus]
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.60.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports: ["9121:9121"]
+    depends_on: [redis]
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${DB_USER:-user}:${DB_PASS:-pass}@db:5432/internship_bot?sslmode=disable"
+    ports: ["9187:9187"]
+    depends_on: [db]
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.0
+    ports: ["9100:9100"]
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.rootfs=/rootfs
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    ports: ["9093:9093"]
+    volumes:
+      - ./infra/prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanagerdata:/alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  prometheusdata:
+  grafanadata:
+  alertmanagerdata:
+  screenshots:
+  vault:
