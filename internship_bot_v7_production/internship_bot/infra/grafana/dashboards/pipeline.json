@@ -1,0 +1,269 @@
+{
+  "id": null,
+  "title": "Internship Bot — Pipeline Monitor",
+  "uid": "internship-bot-main",
+  "tags": ["internship", "pipeline", "ai"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+
+  "templating": {
+    "list": [
+      {
+        "name": "country",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(bot_applications_submitted_total, country)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2
+      },
+      {
+        "name": "portal",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(bot_form_fill_success_total, portal)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2
+      }
+    ]
+  },
+
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Applications Submitted (24h)",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["sum"] } },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{"color":"green","value":null}] }
+        }
+      },
+      "targets": [{
+        "expr": "increase(bot_applications_submitted_total[24h])",
+        "legendFormat": "submitted"
+      }]
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Response Rate",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            {"color":"red","value":null},
+            {"color":"orange","value":0.05},
+            {"color":"green","value":0.15}
+          ]}
+        }
+      },
+      "targets": [{ "expr": "avg(bot_response_rate)", "legendFormat": "rate" }]
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Interview Invites (7d)",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["sum"] } },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{"color":"blue","value":null}] }
+        }
+      },
+      "targets": [{ "expr": "increase(bot_responses_received_total{type='interview'}[7d])", "legendFormat": "interviews" }]
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Human Queue",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            {"color":"green","value":null},
+            {"color":"orange","value":3},
+            {"color":"red","value":10}
+          ]}
+        }
+      },
+      "targets": [{ "expr": "bot_human_queue_size", "legendFormat": "queue" }]
+    },
+
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Median ATS Score",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            {"color":"red","value":null},
+            {"color":"orange","value":60},
+            {"color":"green","value":75}
+          ]}
+        }
+      },
+      "targets": [{ "expr": "histogram_quantile(0.5, rate(bot_ats_score_bucket[1h]))", "legendFormat": "p50" }]
+    },
+
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Active Proxies",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            {"color":"red","value":null},
+            {"color":"orange","value":1},
+            {"color":"green","value":3}
+          ]}
+        }
+      },
+      "targets": [{ "expr": "bot_proxy_pool_available", "legendFormat": "proxies" }]
+    },
+
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Applications Pipeline (submissions / discoveries / errors)",
+      "gridPos": { "x": 0, "y": 4, "w": 16, "h": 8 },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } },
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "rate(bot_applications_submitted_total[5m]) * 60", "legendFormat": "submitted/min" },
+        { "expr": "rate(bot_listings_discovered_total[5m]) * 60", "legendFormat": "discovered/min" },
+        { "expr": "rate(bot_pipeline_errors_total[5m]) * 60", "legendFormat": "errors/min" },
+        { "expr": "rate(bot_applications_generated_total[5m]) * 60", "legendFormat": "generated/min" }
+      ]
+    },
+
+    {
+      "id": 11,
+      "type": "piechart",
+      "title": "Application Status Distribution",
+      "gridPos": { "x": 16, "y": 4, "w": 8, "h": 8 },
+      "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [{ "expr": "bot_application_status_count", "legendFormat": "{{ status }}" }]
+    },
+
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "ATS Score Distribution (p50 / p75 / p90)",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 7 },
+      "targets": [
+        { "expr": "histogram_quantile(0.5,  rate(bot_ats_score_bucket[10m]))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.75, rate(bot_ats_score_bucket[10m]))", "legendFormat": "p75" },
+        { "expr": "histogram_quantile(0.9,  rate(bot_ats_score_bucket[10m]))", "legendFormat": "p90" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "none" } }
+    },
+
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Verification Pass vs Fail Rate",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 7 },
+      "targets": [
+        { "expr": "rate(bot_verification_pass_total[5m]) * 60", "legendFormat": "pass/min" },
+        { "expr": "rate(bot_verification_fail_total[5m]) * 60",  "legendFormat": "fail/min — {{ layer }}" }
+      ]
+    },
+
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "LLM Call Latency by Agent (p90)",
+      "gridPos": { "x": 0, "y": 19, "w": 12, "h": 7 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.9, rate(bot_llm_call_duration_seconds_bucket[5m])) by (agent)", "legendFormat": "{{ agent }}" }
+      ]
+    },
+
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Form Fill Duration by Portal (p90)",
+      "gridPos": { "x": 12, "y": 19, "w": 12, "h": 7 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.9, rate(bot_form_fill_duration_seconds_bucket[5m])) by (portal)", "legendFormat": "{{ portal }}" }
+      ]
+    },
+
+    {
+      "id": 40,
+      "type": "timeseries",
+      "title": "Scraper: Listings Discovered by Platform",
+      "gridPos": { "x": 0, "y": 26, "w": 12, "h": 7 },
+      "targets": [
+        { "expr": "rate(bot_listings_discovered_total[10m]) * 600", "legendFormat": "{{ platform }} / {{ country }}" }
+      ]
+    },
+
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "Portal Errors: CAPTCHAs + Submission Failures",
+      "gridPos": { "x": 12, "y": 26, "w": 12, "h": 7 },
+      "targets": [
+        { "expr": "rate(bot_captcha_encounters_total[5m]) * 60",    "legendFormat": "captcha — {{ portal }}" },
+        { "expr": "rate(bot_submission_failure_total[5m]) * 60",    "legendFormat": "submit fail — {{ portal }}" },
+        { "expr": "rate(bot_form_fill_failure_total[5m]) * 60",     "legendFormat": "fill fail — {{ portal }}" }
+      ]
+    },
+
+    {
+      "id": 50,
+      "type": "timeseries",
+      "title": "HTTP API: Request Rate + Latency (p95)",
+      "gridPos": { "x": 0, "y": 33, "w": 12, "h": 7 },
+      "targets": [
+        { "expr": "rate(bot_http_requests_total[1m]) * 60",         "legendFormat": "req/min — {{ endpoint }}" },
+        { "expr": "histogram_quantile(0.95, rate(bot_http_request_duration_seconds_bucket[1m]))", "legendFormat": "p95 latency" }
+      ]
+    },
+
+    {
+      "id": 51,
+      "type": "timeseries",
+      "title": "Pipeline Errors by Severity",
+      "gridPos": { "x": 12, "y": 33, "w": 12, "h": 7 },
+      "targets": [
+        { "expr": "rate(bot_pipeline_errors_total[5m]) * 60 by (severity)", "legendFormat": "{{ severity }}" }
+      ],
+      "fieldConfig": {
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "critical" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "warning"  }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+        ]
+      }
+    }
+  ]
+}
